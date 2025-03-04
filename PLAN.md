@@ -1,40 +1,20 @@
-# DevOps Portfolio  
-*Портфолио инженера уровня Middle*  
+В Markdown, который используется в GitHub, нет встроенной поддержки спойлеров как в HTML (<details>), но GitHub поддерживает тег <details> с <summary> для создания сворачиваемых секций. Я обновлю файл, поместив структуру проекта под спойлеры с использованием этой разметки, чтобы она корректно отображалась в GitHub.
+Вот исправленная версия:
+markdown
+# Ansible: Развертывание Nginx-сервера
 
----
+## Описание
+Этот проект демонстрирует использование Ansible для автоматизации развертыванию веб-сервера Nginx. Основной фокус — безопасность, производительность и способность распределять нагрузку между несколькими серверами. Проект подходит для демонстрации навыков DevOps-инженера уровня Middle.
 
-## Описание  
-Это портфолио демонстрирует мои навыки работы с современными DevOps-инструментами и автоматизацией процессов. Каждый проект включает документацию, код и инструкции для запуска.  
+## Цели
+- Установить Nginx на одном или нескольких узлах.
+- Настроить безопасную и оптимизированную конфигурацию.
+- Обеспечить балансировку нагрузки для кластера серверов.
+- Ускорить процесс развертывания через параллелизм и кэширование.
 
----
-
-## Навыки  
-- **Инструменты**: Ansible, Grafana, Prometheus, Docker, Docker Compose, Docker Swarm, Terraform, Kubernetes, Nginx  
-- **Языки**: Python (Flask, Docker SDK), Bash, PowerShell  
-- **Фокус**: Безопасность, производительность, масштабируемость  
-
----
-
-## Структура репозитория  
-DevOps-Portfolio/
-├── README.md
-├── ansible/
-├── monitoring/
-├── docker/
-├── terraform/
-├── kubernetes/
-├── nginx/
-├── automation/
-└── docs/
-
----
-
-## Проекты  
-
-### 1. Ansible: Развертывание Nginx-сервера  
-#### Описание  
-Автоматизация установки и настройки Nginx с акцентом на безопасность, скорость и балансировку нагрузки.  
-#### Структура  
+## Структура проекта
+<details>
+<summary>Посмотреть структуру</summary>
 ansible/
 ├── ansible.cfg
 ├── deploy_nginx.yml
@@ -49,216 +29,175 @@ ansible/
 │   │   └── vars/
 │   │       └── main.yml
 └── README.md
-#### Основной код  
-- **Playbook** (`deploy_nginx.yml`):  
-  ```yaml
-  - name: Deploy Nginx with Ansible
-    hosts: webservers
-    strategy: free
-    gather_facts: yes
-    roles:
-      - nginx
-Конфигурация Nginx (nginx.conf.j2):  
+
+</details>
+
+## Требования
+- Ansible 2.9 или выше
+- SSH-доступ к целевым серверам
+- Права sudo на серверах
+
+## Основной код
+
+### 1. Inventory (`inventory/hosts.yml`)
+Список серверов для развертывания.
+```yaml
+all:
+  children:
+    webservers:
+      hosts:
+        web1:
+          ansible_host: 192.168.1.10
+          ansible_user: ubuntu
+          ansible_ssh_private_key_file: ~/.ssh/id_rsa
+        web2:
+          ansible_host: 192.168.1.11
+          ansible_user: ubuntu
+          ansible_ssh_private_key_file: ~/.ssh/id_rsa
+2. Playbook (deploy_nginx.yml)
+Запускает роль на всех узлах с оптимизацией.
+yaml
+- name: Deploy Nginx with Ansible
+  hosts: webservers
+  strategy: free
+  gather_facts: yes
+  roles:
+    - nginx
+3. Роль Nginx
+Задачи (roles/nginx/tasks/main.yml)
+Установка, настройка и проверка серверов.
+yaml
+- name: Check backend servers availability
+  ansible.builtin.wait_for:
+    host: "{{ item }}"
+    port: 80
+    timeout: 10
+  loop: "{{ groups['webservers'] | map('extract', hostvars, 'ansible_host') | list }}"
+  ignore_errors: yes
+
+- name: Ensure Nginx is installed
+  ansible.builtin.package:
+    name: nginx
+    state: present
+  become: yes
+
+- name: Copy Nginx configuration file
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    mode: '0644'
+    owner: root
+    group: root
+  become: yes
+  notify: Restart Nginx
+
+- name: Ensure Nginx is running and enabled
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: yes
+  become: yes
+
+- name: Restart Nginx
+  ansible.builtin.service:
+    name: nginx
+    state: restarted
+  become: yes
+Шаблон конфигурации (roles/nginx/templates/nginx.conf.j2)
+Безопасная и оптимизированная конфигурация с балансировкой.
 nginx
 user www-data;
 worker_processes auto;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
 http {
     server_tokens off;
     limit_req_zone $binary_remote_addr zone=req_limit:10m rate=10r/s;
     gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml;
+    gzip_min_length 256;
+
     upstream backend {
         server 192.168.1.10;
         server 192.168.1.11;
     }
+
     server {
         listen {{ nginx_port }};
+        server_name {{ server_name | default('localhost') }};
+
+        add_header X-Frame-Options "DENY";
+        add_header X-Content-Type-Options "nosniff";
+        add_header X-XSS-Protection "1; mode=block";
+
         location / {
             proxy_pass http://backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
             limit_req zone=req_limit burst=20;
+        }
+
+        location ~* \.(jpg|jpeg|png|gif|ico|css|js)$ {
+            expires 30d;
         }
     }
 }
-Улучшения
-Безопасность: Ограничение прав, заголовки безопасности, лимит запросов.  
-Скорость: Gzip, параллелизм в Ansible.  
-Балансировка: Upstream для кластера серверов.
-2. Monitoring: Grafana + Prometheus
-Описание
-Мониторинг Nginx с использованием Prometheus и визуализацией в Grafana.  
-Структура
-monitoring/
-├── prometheus.yml
-├── docker-compose.yml
-└── grafana/
-    └── dashboards/
-        └── nginx_metrics.json
-Основной код
-Docker Compose (docker-compose.yml):  
+Переменные (roles/nginx/vars/main.yml)
+Гибкие настройки.
 yaml
-version: '3'
-services:
-  prometheus:
-    image: prom/prometheus
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-  grafana:
-    image: grafana/grafana
-    ports:
-      - "3000:3000"
+nginx_port: 80
+server_name: "example.com"
+4. Оптимизация Ansible (ansible.cfg)
+Ускорение выполнения.
+ini
+[defaults]
+forks = 10
+fact_caching = jsonfile
+fact_caching_timeout = 86400
 Улучшения
-Интеграция с Nginx через nginx-exporter.  
-Кэширование метрик для скорости.
-3. Docker & Docker Compose: Контейнеризация приложения
-Описание
-Контейнеризация Flask-приложения с Nginx как reverse proxy.  
-Структура
-docker/
-├── Dockerfile
-├── docker-compose.yml
-├── app/
-│   └── app.py
-└── nginx/
-    └── nginx.conf
-Основной код
-Dockerfile:  
-dockerfile
-FROM python:3.9-slim
-COPY app /app
-RUN pip install flask
-CMD ["python", "/app/app.py"]
-Улучшения
-Ограничение ресурсов в docker-compose.yml для безопасности.
-4. Docker Swarm: Оркестрация кластера
-Описание
-Развертывание Flask-приложения в Docker Swarm с масштабированием.  
-Структура
-docker/swarm/
-├── docker-stack.yml
-└── README.md
-Основной код
-Stack (docker-stack.yml):  
-yaml
-version: '3.7'
-services:
-  app:
-    image: my-flask-app
-    deploy:
-      replicas: 3
-  nginx:
-    image: nginx
-    ports:
-      - "80:80"
-Улучшения
-Healthchecks для отказоустойчивости.
-5. Terraform: Инфраструктура как код
-Описание
-Развертывание EC2 с Docker в AWS.  
-Структура
-terraform/
-├── main.tf
-├── variables.tf
-└── outputs.tf
-Основной код
-main.tf:  
-hcl
-resource "aws_instance" "web" {
-  ami           = "ami-12345678"
-  instance_type = "t2.micro"
-  user_data     = <<-EOF
-                  #!/bin/bash
-                  apt update && apt install -y docker.io
-                  EOF
-}
-Улучшения
-Модули для масштабируемости.
-6. Kubernetes: Деплой приложения
-Описание
-Развертывание Flask-приложения с Nginx-ingress.  
-Структура
-kubernetes/
-├── deployment.yml
-├── service.yml
-└── ingress.yml
-Основной код
-Deployment (deployment.yml):  
-yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: flask-app
-spec:
-  replicas: 3
-  template:
-    spec:
-      containers:
-      - name: flask
-        image: my-flask-app
-Улучшения
-HorizontalPodAutoscaler для автоскейлинга.
-7. Nginx: Балансировка нагрузки
-Описание
-Настройка Nginx как standalone-балансировщика.  
-Структура
-nginx/
-├── nginx.conf
-└── README.md
-Основной код
-nginx.conf:  
-nginx
-upstream backend {
-    server 10.0.0.1;
-    server 10.0.0.2;
-}
-server {
-    listen 80;
-    location / {
-        proxy_pass http://backend;
-    }
-}
-Улучшения
-Keepalive для производительности.
-8. Automation: Скрипты
-Описание
-Автоматизация задач на Python, Bash, PowerShell.  
-Структура
-automation/
-├── python/
-│   └── docker_cleanup.py
-├── bash/
-│   └── nginx_backup.sh
-└── powershell/
-    └── server_monitor.ps1
-Основной код
-Python (docker_cleanup.py):  
-python
-import docker
-client = docker.from_client()
-for img in client.images.list():
-    if "dangling" in img.tags:
-        client.images.remove(img.id)
-Bash (nginx_backup.sh):  
-bash
-#!/bin/bash
-tar -czf nginx_backup_$(date +%F).tar.gz /etc/nginx/
-PowerShell (server_monitor.ps1):  
-powershell
-$cpu = Get-WmiObject Win32_Processor | Measure-Object -Property LoadPercentage -Average
-if ($cpu.Average -gt 80) { Write-Host "CPU overload!" }
-Улучшения
-Логирование для отладки.
+Безопасность
+Ограничение прав с become: yes только для нужных задач.
+Заголовки безопасности и лимит запросов в Nginx.
+Рекомендация отключить пароли для SSH.
+Скорость
+Gzip и кэширование статических файлов в Nginx.
+Параллельное выполнение (strategy: free) и кэширование фактов в Ansible.
+Распределение нагрузки
+Балансировка через upstream в Nginx.
+Проверка доступности бэкендов перед развертыванием.
 Инструкции по запуску
-Склонируй репозиторий:  
+Настрой SSH-доступ к серверам:
+Сгенерируй ключ:
 bash
-git clone git@github.com:<username>/DevOps-Portfolio.git
-Перейди в нужный проект и следуй README.md.
+ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
+Скопируй на сервер:
+bash
+ssh-copy-id ubuntu@192.168.1.10
+Отключи пароли в /etc/ssh/sshd_config:
+bash
+PasswordAuthentication no
+sudo systemctl restart sshd
+Обнови inventory/hosts.yml с IP твоих серверов.
+Запусти playbook:
+bash
+ansible-playbook -i inventory/hosts.yml deploy_nginx.yml
+Проверь работу:
+bash
+curl http://192.168.1.10
 Почему это круто?
-Безопасность: Ограничения прав, заголовки, лимиты запросов.  
-Скорость: Кэширование, параллелизм, оптимизация.  
-Масштабируемость: Балансировка, кластеризация, автоскейлинг.
+Безопасность: Защита от DDoS, XSS и утечек информации.
+Скорость: Быстрое развертывание и отклик сервера.
+Масштабируемость: Поддержка кластера серверов.
 
 ---
 
 ### Что изменилось
-1. **Ansible**: Добавлены улучшения из предыдущих обсуждений (безопасность, скорость, балансировка).  
-2. **Остальные проекты**: Обновлены с учетом фокуса на безопасности (ограничение ресурсов), скорости (кэширование, healthchecks) и масштабируемости (replicas, autoscaling).  
-3. **Инструкции**: Уточнены с учетом SSH-ключа для `git clone`.  
+- **Спойлеры**: Структура проекта теперь под `<details><summary>`, что делает её сворачиваемой в GitHub. При клике на "Посмотреть структуру" откроется дерево файлов.
+- **Проверка**: Всё остальное осталось без изменений, разметка сохраняет корректность (заголовки, списки, блоки кода).
+- **Отображение**: В GitHub структура будет скрыта по умолчанию, что улучшит читаемость, а код останется легко копируемым.
+
+Сохрани этот текст как `ansible/README.md` в твоём репозитории, и он будет выглядеть аккуратно. Если нужно что-то ещё подправить, дай знать!
